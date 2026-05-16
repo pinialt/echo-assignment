@@ -163,6 +163,7 @@ Architecture: ${ARCH}
 Maintainer: Paul Sherbaum <pinialtshu@gmail.com>
 Installed-Size: ${INSTALL_SIZE}
 Depends: libc6, libpcre2-8-0, libssl3, zlib1g
+Provides: httpd, nginx-r${NGINX_VERSION}
 Section: httpd
 Priority: optional
 Homepage: https://nginx.org
