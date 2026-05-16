@@ -33,6 +33,17 @@ HTTP compatibility test against the upstream image.
 - [vex/](vex/) — OpenVEX attestation declaring CVE-2026-42945 as `fixed` (so scanners drop it from the fixed scan)
 - [Makefile](Makefile) — one-command reproduction
 
+**Generated at runtime (gitignored, not in the repo):**
+
+- `.venv/` — Python virtualenv with `pytest` installed (created by `make setup`)
+- `baseline/` — upstream reference snapshot: `nginx -v`/`-V`, `id nginx`, `docker inspect` config, image size (created by `make baseline`)
+- `scans/baseline-{trivy,grype}.{txt,json}` — Trivy + Grype scan of the **upstream** image (created by `make baseline`)
+- `scans/fixed-{trivy,grype}.{txt,json}` — Trivy + Grype scan of **our** image (created by `make scan`)
+- `build/out/nginx_<version>-<rev>_<arch>.deb` — the source-built `.deb` (created by `make build`)
+- `__pycache__/`, `.pytest_cache/` — Python caches
+
+All of the above are recreated by re-running the matching `make` target — `make clean` removes them.
+
 ## Baseline
 
 `make baseline` pulls `nginx:1.25-bookworm` and captures the reference data we'll compare our drop-in build against. Outputs (not committed):
