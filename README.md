@@ -30,7 +30,6 @@ HTTP compatibility test against the upstream image.
 - [entrypoint/](entrypoint/) — entrypoint scripts vendored from [`nginx/docker-nginx@1.25.5`](https://github.com/nginx/docker-nginx/tree/1.25.5/mainline/debian)
 - [Containerfile](Containerfile) — produces the final image from the `.deb`
 - [test/](test/) — compatibility test (`make test`) + drop-in parity audit (`make smoke`)
-- [scans/](scans/) — Trivy + Grype reports (baseline and fixed)
 - [vex/](vex/) — OpenVEX attestation declaring CVE-2026-42945 as `fixed` (so scanners drop it from the fixed scan)
 - [Makefile](Makefile) — one-command reproduction
 
@@ -43,7 +42,7 @@ HTTP compatibility test against the upstream image.
 - `baseline/upstream-id-nginx.txt` — `id nginx` (uid/gid of the runtime user)
 - `baseline/upstream-config.json` — `docker inspect` of the image config (entrypoint, cmd, workdir, exposed ports, env, user)
 - `baseline/upstream-size.txt` — on-disk image size (`docker images --format '{{.Size}}'`)
-- `scans/baseline-trivy.{txt,json}` and `scans/baseline-grype.{txt,json}` — vulnerability scans
+- `scans/baseline-trivy.{txt,json}` and `scans/baseline-grype.{txt,json}` — vulnerability scans (also not committed; regenerate with `make baseline`. The matching post-build scans `scans/fixed-*` are produced by `make scan`)
 
 ## Build instructions
 
@@ -106,7 +105,7 @@ One specific CVE caught my attention: **CVE-2026-42945**. It's very recent, appe
 |---|---|---|---|---|
 | [CVE-2024-6119](https://security-tracker.debian.org/tracker/CVE-2024-6119) | High | `libssl3` (OpenSSL X.509 name-check DoS) | **dependency version bump** — `libssl3 3.0.11 → 3.0.20` via newer bookworm base | both scanners drop it from the fixed scan; counted in [`make scan`](#build-instructions)'s summary |
 | [CVE-2026-42945](https://github.com/nginx/nginx/commit/524977e7c534e87e5b55739fa74601c9f1102686) | Critical | `nginx` (Rift — rewrite-engine double-free on `+`-heavy URI paths) | **backport patch** — [`build/patches/CVE-2026-42945.patch`](build/patches/CVE-2026-42945.patch), lifted from upstream commit [`524977e7c5`](https://github.com/nginx/nginx/commit/524977e7c534e87e5b55739fa74601c9f1102686) | `test_cve_2026_42945_rift_no_crash` in [test/compat_test.py](test/compat_test.py) asserts upstream crashes and ours doesn't on the 200-`+` payload. Scanner-side: declared `fixed` in [vex/echo-nginx.openvex.json](vex/echo-nginx.openvex.json), so Grype drops it via `--vex` (Trivy never flagged it in baseline, so VEX is moot there) |
-| (+121 others) | mixed (incl. Critical `CVE-2024-5535` in `libssl3`, `CVE-2024-37371` in `libkrb5`, High `CVE-2023-50387` in `libsystemd0`, etc.) | various bookworm packages | dependency version bump (automatic via newer bookworm point releases) | [`make scan`](#build-instructions) reports **122 CVEs resolved via bookworm drift** (per both Grype and Trivy); diff `scans/baseline-grype.txt` vs `scans/fixed-grype.txt` for the full list |
+| (+121 others) | mixed (incl. Critical `CVE-2024-5535` in `libssl3`, `CVE-2024-37371` in `libkrb5`, High `CVE-2023-50387` in `libsystemd0`, etc.) | various bookworm packages | dependency version bump (automatic via newer bookworm point releases) | [`make scan`](#build-instructions) reports **122 CVEs resolved via bookworm drift** (per both Grype and Trivy). The scan files themselves are local-only — diff `scans/baseline-grype.txt` vs `scans/fixed-grype.txt` after running `make baseline` + `make scan` to see the full list |
 
 ## Residual risk
 

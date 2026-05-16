@@ -298,6 +298,23 @@ def test_get_api(custom_config_pair):
 
 # ----- Tests (CVE regression) -----
 
+def test_cve_2026_42945_normal_rewrite_unaffected(cve_2026_42945_pair):
+    """Sanity test for the CVE-2026-42945 backport: the one-line patch
+    (`e->is_args = 0;` in `ngx_http_script_regex_end_code`) resets engine
+    state mid-rewrite, which could silently break legitimate rewrite
+    behavior on normal inputs. This test exercises the SAME vulnerable
+    config with non-malicious paths and asserts upstream and ours respond
+    identically — if our patch regressed legit rewrite handling, this fails
+    on status or body even though the crash test still passes.
+    """
+    info = cve_2026_42945_pair
+    for path in ["/hello", "/foo/bar", "/normal-request"]:
+        assert_responses_match(
+            fetch(info["p_up"], path),
+            fetch(info["p_ours"], path),
+        )
+
+
 def test_cve_2026_42945_rift_no_crash(cve_2026_42945_pair):
     """Regression test for CVE-2026-42945 (Rift) — backported patch.
 
