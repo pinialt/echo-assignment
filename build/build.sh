@@ -110,6 +110,13 @@ log "install to staging"
 make install DESTDIR="$STAGE"
 mkdir -p "$STAGE/var/cache/nginx" "$STAGE/var/log/nginx"
 
+# Strip debug symbols from the binary (matches nginx.org's debian/rules).
+# Compiled with `-g`, so the binary carries ~7 MB of debug metadata that
+# nginx.org strips before packaging — without this our nginx is 8.45 MB
+# vs upstream's 1.56 MB.
+log "strip /usr/sbin/nginx"
+strip "$STAGE/usr/sbin/nginx"
+
 # Why this `mv` exists: we vendor upstream's conf.d/default.conf (which says
 # `root /usr/share/nginx/html;`) but nginx source's `make install` placed the
 # docroot at ${prefix}/html (/etc/nginx/html in our case). Without relocation,
