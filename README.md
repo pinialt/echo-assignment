@@ -58,3 +58,7 @@ TODO — what's still flagged, why, what we'd do next.
 
 - What AI tooling was used for, and where it helped / hurt: TODO
 - Surprises / things I'd do differently with more time: TODO
+
+My notes:
+- nginx is generous and gives us the -V command, giving the exact configuration it was built with. Other packages might have a different command, or none - and then you would actually need to reverse engineer using `--version`/`dpkg -s` + `debian/rules` from the source package + `ldd` on the binary.
+- `nginx:1.25-bookworm` is a floating tag, and currently tied to version 1.25.5 of nginx. in production we should pin the digest key to make sure no breaks occure on updated tags.
