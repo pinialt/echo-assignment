@@ -17,6 +17,7 @@ baseline:
 	docker run --rm $(UPSTREAM) id nginx | tee baseline/upstream-id-nginx.txt
 	docker inspect $(UPSTREAM) --format '{{json .Config}}' \
 	    | python3 -m json.tool > baseline/upstream-config.json
+	docker images $(UPSTREAM) --format '{{.Size}}' | tee baseline/upstream-size.txt
 	trivy image $(UPSTREAM) > scans/baseline-trivy.txt
 	trivy image --format json $(UPSTREAM) > scans/baseline-trivy.json
 	grype $(UPSTREAM) > scans/baseline-grype.txt

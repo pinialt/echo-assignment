@@ -29,6 +29,7 @@ HTTP compatibility test against the upstream image.
 - `baseline/upstream-nginx-V.txt` — `nginx -V` (configure flags, modules, compile-time defaults)
 - `baseline/upstream-id-nginx.txt` — `id nginx` (uid/gid of the runtime user)
 - `baseline/upstream-config.json` — `docker inspect` of the image config (entrypoint, cmd, workdir, exposed ports, env, user)
+- `baseline/upstream-size.txt` — on-disk image size (`docker images --format '{{.Size}}'`)
 - `scans/baseline-trivy.{txt,json}` and `scans/baseline-grype.{txt,json}` — vulnerability scans
 
 ## Build instructions
@@ -39,7 +40,7 @@ TODO
 
 | | Size |
 |---|---|
-| `nginx:1.25-bookworm` (upstream) | TODO |
+| `nginx:1.25-bookworm` (upstream) | 278MB |
 | this image | TODO |
 
 ## CVEs fixed
