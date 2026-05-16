@@ -9,8 +9,6 @@
 #
 # Runs in a fresh debian:bookworm-slim container — no pre-baked binaries.
 
-# TODO: Test patch
-
 set -euo pipefail
 
 : "${NGINX_VERSION:?NGINX_VERSION must be set}"
