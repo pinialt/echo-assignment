@@ -1,0 +1,15 @@
+# Build artifacts
+build/out/
+*.deb
+*.dsc
+*.tar.*
+*.buildinfo
+*.changes
+
+# Local scan output before it's curated into scans/
+*.tmp
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
