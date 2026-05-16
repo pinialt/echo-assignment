@@ -1,0 +1,21 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/echo/assignment/vex/echo-nginx",
+  "author": "Paul Sherbaum <pinialtshu@gmail.com>",
+  "timestamp": "2026-05-16T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-42945",
+        "description": "Rift — double-free in nginx's rewrite engine on URI paths with many '+' characters"
+      },
+      "products": [
+        { "@id": "pkg:deb/debian/nginx@1.25.5-paul1?arch=arm64&distro=debian-12" },
+        { "@id": "pkg:deb/debian/nginx@1.25.5-paul1?arch=amd64&distro=debian-12" }
+      ],
+      "status": "fixed",
+      "impact_statement": "Patched via build/patches/CVE-2026-42945.patch, lifted from upstream commit 524977e7c534e87e5b55739fa74601c9f1102686. Verified by test/compat_test.py::test_cve_2026_42945_rift_no_crash — upstream nginx:1.25-bookworm still crashes on the 200-'+' payload; our build does not."
+    }
+  ]
+}

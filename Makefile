@@ -66,13 +66,15 @@ setup:
 
 # Re-scan the built image and diff against the captured baseline.
 # Expects `make baseline` to have run first (so scans/baseline-*.{txt,json} exist).
+VEX ?= vex/echo-nginx.openvex.json
+
 scan:
 	@mkdir -p scans
-	@echo "==> scanning $(IMAGE) with trivy + grype …"
-	@trivy image $(IMAGE) > scans/fixed-trivy.txt 2>/dev/null
-	@trivy image --format json $(IMAGE) > scans/fixed-trivy.json 2>/dev/null
-	@grype $(IMAGE) > scans/fixed-grype.txt 2>/dev/null
-	@grype $(IMAGE) -o json > scans/fixed-grype.json 2>/dev/null
+	@echo "==> scanning $(IMAGE) with trivy + grype (VEX: $(VEX)) …"
+	@trivy image --vex $(VEX) $(IMAGE) > scans/fixed-trivy.txt 2>/dev/null
+	@trivy image --vex $(VEX) --format json $(IMAGE) > scans/fixed-trivy.json 2>/dev/null
+	@grype --vex $(VEX) $(IMAGE) > scans/fixed-grype.txt 2>/dev/null
+	@grype --vex $(VEX) $(IMAGE) -o json > scans/fixed-grype.json 2>/dev/null
 	@echo
 	@echo "==> CVEs resolved (in baseline but not in fixed):"
 	@set -e; \
@@ -83,6 +85,12 @@ scan:
 	    printf "    %-7s %s\n" "$$scanner:" "$$count"; \
 	    rm -f scans/.cve_baseline.tmp scans/.cve_fixed.tmp; \
 	done
+	@if [ -f "$(VEX)" ]; then \
+	    vex_count=$$(python3 -c "import json; d=json.load(open('$(VEX)')); print(sum(1 for s in d.get('statements',[]) if s.get('status') in ('fixed','not_affected')))"); \
+	else \
+	    vex_count=0; \
+	fi; \
+	printf "    %-7s %s  (of the above, dropped via VEX attestation)\n" "vex:" "$$vex_count"
 
 clean:
 	@echo "TODO: remove build/out, built images, scan artifacts"
