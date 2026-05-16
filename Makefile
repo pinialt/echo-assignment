@@ -1,7 +1,10 @@
 .PHONY: all baseline build image test scan clean
 
-IMAGE        ?= echo-nginx:local
-UPSTREAM     ?= nginx:1.25-bookworm
+IMAGE          ?= echo-nginx:local
+UPSTREAM       ?= nginx:1.25-bookworm
+NGINX_VERSION  ?= 1.25.5
+DEB_REVISION   ?= paul1
+BUILDER_IMAGE  ?= debian:bookworm-slim
 
 all: build image test
 
@@ -20,9 +23,18 @@ baseline:
 	grype $(UPSTREAM) -o json > scans/baseline-grype.json
 	@echo "==> baseline captured: baseline/ + scans/baseline-*.{txt,json}"
 
-# Build the nginx .deb from upstream source on debian:bookworm-slim.
+# Build the nginx .deb from upstream source on a clean debian:bookworm-slim.
+# The container is only a sandbox; the actual build is build/build.sh.
 build:
-	@echo "TODO: invoke build/ pipeline -> build/out/*.deb"
+	mkdir -p build/out
+	docker run --rm \
+	    -v $(PWD)/build:/build:ro \
+	    -v $(PWD)/build/out:/out \
+	    -e NGINX_VERSION=$(NGINX_VERSION) \
+	    -e DEB_REVISION=$(DEB_REVISION) \
+	    $(BUILDER_IMAGE) \
+	    bash /build/build.sh
+	@echo "==> built: build/out/nginx_$(NGINX_VERSION)-$(DEB_REVISION)_amd64.deb"
 
 # Install the .deb into a minimal base and produce the final image.
 image:
