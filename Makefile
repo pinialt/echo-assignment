@@ -67,18 +67,22 @@ setup:
 # Re-scan the built image and diff against the captured baseline.
 # Expects `make baseline` to have run first (so scans/baseline-*.{txt,json} exist).
 scan:
-	mkdir -p scans
-	trivy image $(IMAGE) > scans/fixed-trivy.txt
-	trivy image --format json $(IMAGE) > scans/fixed-trivy.json
-	grype $(IMAGE) > scans/fixed-grype.txt
-	grype $(IMAGE) -o json > scans/fixed-grype.json
+	@mkdir -p scans
+	@echo "==> scanning $(IMAGE) with trivy + grype …"
+	@trivy image $(IMAGE) > scans/fixed-trivy.txt 2>/dev/null
+	@trivy image --format json $(IMAGE) > scans/fixed-trivy.json 2>/dev/null
+	@grype $(IMAGE) > scans/fixed-grype.txt 2>/dev/null
+	@grype $(IMAGE) -o json > scans/fixed-grype.json 2>/dev/null
 	@echo
-	@echo "==> CVEs in baseline but NOT in fixed (resolved by our build):"
+	@echo "==> CVEs resolved (in baseline but not in fixed):"
 	@set -e; \
-	grep -hoE 'CVE-[0-9]+-[0-9]+' scans/baseline-grype.txt | sort -u > scans/.cve_baseline.tmp; \
-	grep -hoE 'CVE-[0-9]+-[0-9]+' scans/fixed-grype.txt    | sort -u > scans/.cve_fixed.tmp; \
-	comm -23 scans/.cve_baseline.tmp scans/.cve_fixed.tmp | sed 's/^/    /'; \
-	rm -f scans/.cve_baseline.tmp scans/.cve_fixed.tmp
+	for scanner in grype trivy; do \
+	    grep -hoE 'CVE-[0-9]+-[0-9]+' scans/baseline-$$scanner.txt | sort -u > scans/.cve_baseline.tmp; \
+	    grep -hoE 'CVE-[0-9]+-[0-9]+' scans/fixed-$$scanner.txt    | sort -u > scans/.cve_fixed.tmp; \
+	    count=$$(comm -23 scans/.cve_baseline.tmp scans/.cve_fixed.tmp | wc -l | tr -d ' '); \
+	    printf "    %-7s %s\n" "$$scanner:" "$$count"; \
+	    rm -f scans/.cve_baseline.tmp scans/.cve_fixed.tmp; \
+	done
 
 clean:
 	@echo "TODO: remove build/out, built images, scan artifacts"

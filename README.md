@@ -59,6 +59,12 @@ We're ~5MB under, mostly because upstream ships `nginx-debug` (a second nginx bi
 
 The remaining sub-MB delta is bookworm point-release drift (e.g. `libssl3` `3.0.11` → `3.0.20`, `libc6` `+deb12u7` → `+deb12u13`, dozens of other tiny bumps) — pinned exact parity would require `snapshot.debian.org`.
 
+## Triage
+
+I found out that the scans are different because the scanners work differently. The version-bump candidates are the dependencies - ideally the higher-risk and broader-chance ones (`libssl3`). Many of those were natively fixed by simply using a more updated bookworm image as a base image, so those were the update candidates, like **CVE-2024-6119**. In fact **122 CVEs from the baseline scan dropped out of our fixed scan** purely from the bookworm point-release drift (`make scan` prints the full diff) - many of them high-severity (`CVE-2024-5535` Critical in libssl3, `CVE-2023-50387` in libsystemd0, `CVE-2024-37371` Critical in libkrb5, etc.).
+
+One specific CVE caught my attention: **CVE-2026-42945**. It's very recent, appears in nginx itself in one of the scans (Grype only). It was marked as "won't fix", and after a little research it won't be fixed specifically in bookworm. The fix does exist upstream at [`nginx/nginx@524977e7c5`](https://github.com/nginx/nginx/commit/524977e7c534e87e5b55739fa74601c9f1102686), and I wanted to append it to the older version since it's one line.
+
 ## CVEs fixed
 
 | CVE | Severity | Component | Fix method | Evidence |
