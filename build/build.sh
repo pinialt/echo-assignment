@@ -110,6 +110,40 @@ log "install to staging"
 make install DESTDIR="$STAGE"
 mkdir -p "$STAGE/var/cache/nginx" "$STAGE/var/log/nginx"
 
+# Why this `mv` exists: we vendor upstream's conf.d/default.conf (which says
+# `root /usr/share/nginx/html;`) but nginx source's `make install` placed the
+# docroot at ${prefix}/html (/etc/nginx/html in our case). Without relocation,
+# nginx parses the config fine but every `GET /` returns 404 — observed during
+# smoke testing. Upstream's .deb has no /etc/nginx/html and the html files at
+# /usr/share/nginx/html are owned by the `nginx` package (verified via
+# `dpkg-query -S`), so this relocation happens inside their packaging too —
+# see the upstream dh_install mapping at
+# https://github.com/nginx/pkg-oss/blob/master/debian/debian/nginx.install
+# (`html/index.html  usr/share/nginx/html`). nginx.org bypasses `make install`
+# and uses dh_install with explicit src→dest pairs; we use `make install`
+# plus this `mv` for the same end state.
+log "relocate html docroot to /usr/share/nginx/html"
+mkdir -p "$STAGE/usr/share/nginx"
+mv "$STAGE/etc/nginx/html" "$STAGE/usr/share/nginx/html"
+
+# Why this exists: the assignment requires matching the upstream image's
+# filesystem layout exactly. `make install` produces 12+ files upstream
+# doesn't ship (`*.default` reference copies, KOI8/Win-1251 charset maps,
+# `fastcgi.conf` — observed via `ls /etc/nginx/` diffing our image vs
+# upstream), and skips the `/etc/nginx/modules` symlink that upstream's .deb
+# registers (visible via `dpkg-query -S /etc/nginx/modules` on the upstream
+# image — owned by the `nginx` package). This block prunes the extras and
+# adds the symlink so `ls /etc/nginx/` matches upstream.
+log "align /etc/nginx with upstream layout"
+rm -f \
+    "$STAGE/etc/nginx/"*.default \
+    "$STAGE/etc/nginx/koi-utf" \
+    "$STAGE/etc/nginx/koi-win" \
+    "$STAGE/etc/nginx/win-utf" \
+    "$STAGE/etc/nginx/fastcgi.conf"
+mkdir -p "$STAGE/usr/lib/nginx/modules"
+ln -sfn /usr/lib/nginx/modules "$STAGE/etc/nginx/modules"
+
 # Overlay Debian-packaging configs from /build/conf/ on top of source defaults.
 # nginx's `make install` ships source's pristine nginx.conf (inline server block,
 # no conf.d include) — upstream's .deb ships a packaging-modified version that
