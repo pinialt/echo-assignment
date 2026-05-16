@@ -187,6 +187,35 @@ def custom_config_pair():
     silent_rm(name_up, name_ours)
 
 
+@pytest.fixture(scope="module")
+def cve_2026_42945_pair():
+    """Container pair with test/fixtures/cve-2026-42945.conf mounted OVER
+    /etc/nginx/conf.d/default.conf. The mounted config has the vulnerable
+    `rewrite ... ; set $myvar $1; return 200 $myvar;` pattern that crashes
+    the nginx worker on a request whose URI path contains many `+` chars."""
+    name_up, name_ours = "echo-compat-cve-upstream", "echo-compat-cve-ours"
+    silent_rm(name_up, name_ours)
+    p_up, p_ours = free_port(), free_port()
+    mount = [f"{FIXTURES}/cve-2026-42945.conf:/etc/nginx/conf.d/default.conf:ro"]
+    start_container(UPSTREAM, name_up, p_up, mounts=mount)
+    start_container(IMAGE, name_ours, p_ours, mounts=mount)
+    if not (wait_ready(p_up) and wait_ready(p_ours)):
+        silent_rm(name_up, name_ours)
+        pytest.fail("CVE-2026-42945 container pair failed to become ready")
+    yield {"p_up": p_up, "p_ours": p_ours, "name_up": name_up, "name_ours": name_ours}
+    silent_rm(name_up, name_ours)
+
+
+def worker_crashed(container_name: str) -> bool:
+    """Inspect docker logs for the CVE-2026-42945 crash signature."""
+    res = subprocess.run(
+        ["docker", "logs", "--tail", "60", container_name],
+        capture_output=True, text=True,
+    )
+    blob = res.stdout + res.stderr
+    return ("double free or corruption" in blob) or ("exited on signal 6" in blob)
+
+
 # ----- Tests (default config) -----
 
 def test_get_root(default_pair):
@@ -265,3 +294,44 @@ def test_get_api(custom_config_pair):
     identical responses, exercising `include /etc/nginx/conf.d/*.conf;`."""
     p_up, p_ours = custom_config_pair
     assert_responses_match(fetch(p_up, "/api"), fetch(p_ours, "/api"))
+
+
+# ----- Tests (CVE regression) -----
+
+def test_cve_2026_42945_rift_no_crash(cve_2026_42945_pair):
+    """Regression test for CVE-2026-42945 (Rift) — backported patch.
+
+    Sends `/` + 200 `+` characters as the URI path against the vulnerable
+    rewrite config (test/fixtures/cve-2026-42945.conf). Upstream nginx
+    1.25.5 crashes its worker on this input ("double free or corruption",
+    worker exits on signal 6). Our build carries the upstream fix from
+    https://github.com/nginx/nginx/commit/524977e7c534e87e5b55739fa74601c9f1102686
+    as build/patches/CVE-2026-42945.patch.
+
+    Asserts:
+      1. Upstream still crashes (the bug exists and our reproduction is valid).
+      2. Our image does NOT crash (the backport patch holds).
+    Failing #1 means the reproduction broke; failing #2 means the patch
+    didn't land or didn't apply correctly.
+    """
+    info = cve_2026_42945_pair
+    payload = "/" + ("+" * 200)
+
+    # Fire the payload at each container. Either may raise a connection
+    # error if the worker dies mid-response; that's fine, we check logs.
+    for port in (info["p_up"], info["p_ours"]):
+        try:
+            fetch(port, payload)
+        except Exception:
+            pass
+    time.sleep(0.5)  # give nginx a moment to flush the crash signature
+
+    assert worker_crashed(info["name_up"]), (
+        "expected upstream nginx:1.25-bookworm to crash on the CVE-2026-42945 "
+        "payload, but no crash signature was seen in its logs"
+    )
+    assert not worker_crashed(info["name_ours"]), (
+        "our image crashed on the CVE-2026-42945 payload — the backport patch "
+        "isn't taking effect. Re-run `make build && make image` after dropping "
+        "the patch into build/patches/."
+    )
