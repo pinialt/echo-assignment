@@ -1,4 +1,4 @@
-.PHONY: all baseline build image test scan clean
+.PHONY: all baseline build image smoke test scan clean
 
 IMAGE          ?= echo-nginx:local
 UPSTREAM       ?= nginx:1.25-bookworm
@@ -43,6 +43,11 @@ image:
 	@ls build/out/*.deb >/dev/null 2>&1 || { echo "No .deb in build/out/. Run 'make build' first." >&2; exit 1; }
 	docker build -f Containerfile -t $(IMAGE) .
 	@echo "==> built: $(IMAGE)"
+
+# Drop-in parity audit: boots our image, runs HTTP + filesystem + manifest
+# checks against the upstream baseline. Informational (prints diffs).
+smoke:
+	IMAGE=$(IMAGE) UPSTREAM=$(UPSTREAM) bash test/smoke.sh
 
 # Run the HTTP compatibility test against upstream + our image.
 test:
