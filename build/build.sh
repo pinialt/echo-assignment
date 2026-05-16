@@ -110,6 +110,15 @@ log "install to staging"
 make install DESTDIR="$STAGE"
 mkdir -p "$STAGE/var/cache/nginx" "$STAGE/var/log/nginx"
 
+# Overlay Debian-packaging configs from /build/conf/ on top of source defaults.
+# nginx's `make install` ships source's pristine nginx.conf (inline server block,
+# no conf.d include) — upstream's .deb ships a packaging-modified version that
+# splits the server block into /etc/nginx/conf.d/default.conf and adds
+# `include /etc/nginx/conf.d/*.conf;` to nginx.conf. Replicating that here.
+log "overlay packaging configs"
+install -m 0644 /build/conf/nginx.conf      "$STAGE/etc/nginx/nginx.conf"
+install -D -m 0644 /build/conf/default.conf "$STAGE/etc/nginx/conf.d/default.conf"
+
 log "write DEBIAN/control"
 INSTALL_SIZE=$(du -sk "$STAGE" | awk '{print $1}')
 mkdir -p "$STAGE/DEBIAN"
@@ -127,6 +136,13 @@ Description: high performance web server (rebuilt from upstream source)
  nginx [engine x] is an HTTP and reverse proxy server, a mail proxy
  server, and a generic TCP/UDP proxy server. Rebuilt from upstream
  source on debian:bookworm-slim with CVE patches applied.
+EOF
+
+# Register the configs as conffiles so dpkg treats them as user-editable
+# and preserves local modifications across upgrades (matches upstream .deb).
+cat > "$STAGE/DEBIAN/conffiles" <<'EOF'
+/etc/nginx/nginx.conf
+/etc/nginx/conf.d/default.conf
 EOF
 
 # postinst: create the nginx user/group at uid/gid 101 to match upstream image.
