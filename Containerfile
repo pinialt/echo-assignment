@@ -1,9 +1,16 @@
-# This is a template file from docker-nginx repo - (https://github.com/nginx/docker-nginx/blob/c90491de22401b512a64fff6d23d3dcb3a861573/Dockerfile-debian.template)
-# which they used for nginx image creation.
+# Modeled after nginx's official 1.25.5 image build:
+# https://github.com/nginx/docker-nginx/blob/1.25.5/mainline/debian/Dockerfile
 #
-# Adapted: placeholders substituted to match nginx:1.25-bookworm, and the
-# nginx.org apt-repo install (GPG keys + remote .debs) replaced with
-# installing our locally-built .deb from build/out/.
+# Adapted: the nginx.org apt-install of `nginx` itself is replaced with
+# `apt-get install /tmp/*.deb` of our locally-built .deb. The four
+# nginx-module-* packages still come from nginx.org's mainline apt repo
+# (they're built against the nginx 1.25.5 ABI and nginx.org is the only
+# source of prebuilt module binaries for that nginx version — bookworm
+# only ships nginx 1.22.x modules).
+#
+# Our .deb declares `Provides: httpd, nginx-r1.25.5`, which satisfies the
+# nginx-module-* packages' `Depends: nginx-r1.25.5` and prevents apt from
+# pulling nginx.org's nginx as a transitive dep.
 
 FROM debian:bookworm-slim
 
@@ -14,27 +21,35 @@ ENV NJS_VERSION=0.8.4
 ENV NJS_RELEASE=3~bookworm
 ENV PKG_RELEASE=1~bookworm
 
-# Install our locally-built nginx .deb. The .deb's postinst creates the
-# nginx user/group at uid/gid 101 (mirroring the upstream image).
-# gettext-base → envsubst (used by /docker-entrypoint.d/20-envsubst-on-templates.sh)
-# curl         → present in upstream image
 COPY build/out/*.deb /tmp/
 
 RUN set -x \
     && apt-get update \
     && apt-get install --no-install-recommends --no-install-suggests -y \
         ca-certificates \
-        curl \
-        gettext-base \
+    && echo "deb [trusted=yes] https://nginx.org/packages/mainline/debian/ bookworm nginx" \
+        > /etc/apt/sources.list.d/nginx.list \
+    && apt-get update \
+# Install our locally-built nginx .deb + the 4 module packages + helpers in
+# one shot. apt picks our deb as the provider of nginx-r1.25.5 because it
+# appears first in the args and is a local file (higher selection priority
+# than the same-named remote package).
+    && apt-get install --no-install-recommends --no-install-suggests -y \
         /tmp/*.deb \
-    && rm -rf /var/lib/apt/lists/* /tmp/*.deb \
+        nginx-module-xslt=${NGINX_VERSION}-${PKG_RELEASE} \
+        nginx-module-geoip=${NGINX_VERSION}-${PKG_RELEASE} \
+        nginx-module-image-filter=${NGINX_VERSION}-${PKG_RELEASE} \
+        nginx-module-njs=${NGINX_VERSION}+${NJS_VERSION}-${NJS_RELEASE} \
+        gettext-base \
+        curl \
+    && rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/nginx.list /tmp/*.deb \
 # forward request and error logs to docker log collector
     && ln -sf /dev/stdout /var/log/nginx/access.log \
     && ln -sf /dev/stderr /var/log/nginx/error.log \
 # create a docker-entrypoint.d directory
     && mkdir /docker-entrypoint.d
 
-# Vendored from upstream docker-nginx (commit c90491de) — see entrypoint/.
+# Vendored from upstream docker-nginx 1.25.5 tag (mainline/debian/) — see entrypoint/.
 COPY entrypoint/docker-entrypoint.sh /
 COPY entrypoint/10-listen-on-ipv6-by-default.sh /docker-entrypoint.d
 COPY entrypoint/15-local-resolvers.envsh /docker-entrypoint.d
