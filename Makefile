@@ -1,4 +1,4 @@
-.PHONY: all baseline build image smoke test scan clean
+.PHONY: all setup baseline build image smoke test scan clean
 
 IMAGE          ?= echo-nginx:local
 UPSTREAM       ?= nginx:1.25-bookworm
@@ -49,13 +49,36 @@ image:
 smoke:
 	IMAGE=$(IMAGE) UPSTREAM=$(UPSTREAM) bash test/smoke.sh
 
-# Run the HTTP compatibility test against upstream + our image.
-test:
-	IMAGE=$(IMAGE) UPSTREAM=$(UPSTREAM) python3 test/compat_test.py
+# Auto-use the project venv at .venv/ when present; otherwise system python3.
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-# Re-scan the built image and diff against baseline.
+# Run the HTTP compatibility test against upstream + our image.
+# Requires `pytest` — install via `make setup` (creates .venv with pytest).
+test:
+	IMAGE=$(IMAGE) UPSTREAM=$(UPSTREAM) $(PYTHON) -m pytest test/compat_test.py -v
+
+# One-shot Python env setup: create .venv and install pytest.
+setup:
+	python3 -m venv .venv
+	.venv/bin/pip install --upgrade pip
+	.venv/bin/pip install -r requirements.txt
+	@echo "==> .venv ready. To use it directly: source .venv/bin/activate"
+
+# Re-scan the built image and diff against the captured baseline.
+# Expects `make baseline` to have run first (so scans/baseline-*.{txt,json} exist).
 scan:
-	@echo "TODO: trivy/grype $(IMAGE) -> scans/fixed-*.txt; diff vs baseline"
+	mkdir -p scans
+	trivy image $(IMAGE) > scans/fixed-trivy.txt
+	trivy image --format json $(IMAGE) > scans/fixed-trivy.json
+	grype $(IMAGE) > scans/fixed-grype.txt
+	grype $(IMAGE) -o json > scans/fixed-grype.json
+	@echo
+	@echo "==> CVEs in baseline but NOT in fixed (resolved by our build):"
+	@set -e; \
+	grep -hoE 'CVE-[0-9]+-[0-9]+' scans/baseline-grype.txt | sort -u > scans/.cve_baseline.tmp; \
+	grep -hoE 'CVE-[0-9]+-[0-9]+' scans/fixed-grype.txt    | sort -u > scans/.cve_fixed.tmp; \
+	comm -23 scans/.cve_baseline.tmp scans/.cve_fixed.tmp | sed 's/^/    /'; \
+	rm -f scans/.cve_baseline.tmp scans/.cve_fixed.tmp
 
 clean:
 	@echo "TODO: remove build/out, built images, scan artifacts"

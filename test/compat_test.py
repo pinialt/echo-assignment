@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
 """
 Compatibility test for echo-nginx:local against nginx:1.25-bookworm.
 
-Boots both images as separate containers on random host ports, issues the
-same HTTP requests against each, and asserts response status + headers +
-body match. Exits non-zero on any mismatch.
+Boots both images as separate containers on random host ports (session-scoped
+fixture for the default pair, module-scoped fixture for the custom-config
+pair) and asserts that the same HTTP requests get matching response status,
+headers, and body from each. pytest's non-zero exit on any failed assertion
+satisfies the assignment's "exits non-zero on any mismatch" requirement.
 
 Headers that legitimately vary across builds (Date, ETag, Last-Modified,
 Connection, Server) are ignored for value comparison but must still be
 present in both responses.
 
 Run via: make test
-       or: python3 test/compat_test.py
+       or: python3 -m pytest test/compat_test.py -v
 Env: IMAGE (default echo-nginx:local), UPSTREAM (default nginx:1.25-bookworm)
-     NO_COLOR=1 to disable ANSI colors.
 """
 
 import gzip
@@ -21,48 +21,22 @@ import http.client
 import os
 import socket
 import subprocess
-import sys
 import time
-from contextlib import contextmanager
 from pathlib import Path
+
+import pytest
 
 # ----- Config -----
 
 UPSTREAM = os.environ.get("UPSTREAM", "nginx:1.25-bookworm")
 IMAGE = os.environ.get("IMAGE", "echo-nginx:local")
-NAME_UP = "echo-compat-upstream"
-NAME_OURS = "echo-compat-ours"
 FIXTURES = Path(__file__).parent / "fixtures"
 
 # Headers we don't compare values for — inherently per-build/per-request.
 HEADERS_IGNORE_VALUE = {"date", "etag", "last-modified", "connection", "server"}
 
-PASS = 0
-FAIL = 0
-
-
-# ----- ANSI color helpers (auto-disable when stdout isn't a tty or NO_COLOR is set) -----
-
-USE_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-
-
-def _ansi(code: str, text: str) -> str:
-    return f"\033[{code}m{text}\033[0m" if USE_COLOR else text
-
-
-def green(t: str) -> str: return _ansi("32", t)
-def red(t: str) -> str:   return _ansi("31", t)
-def cyan(t: str) -> str:  return _ansi("36;1", t)
-def yellow(t: str) -> str: return _ansi("33", t)
-def dim(t: str) -> str:   return _ansi("2", t)
-def bold(t: str) -> str:  return _ansi("1", t)
-
 
 # ----- Subprocess + container lifecycle -----
-
-def run(cmd, **kw):
-    return subprocess.run(cmd, check=True, **kw)
-
 
 def silent_rm(*names: str) -> None:
     for name in names:
@@ -85,7 +59,7 @@ def start_container(image: str, name: str, host_port: int,
         for m in mounts:
             cmd.extend(["-v", m])
     cmd.append(image)
-    run(cmd, stdout=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
 def wait_ready(port: int, timeout: float = 10) -> bool:
@@ -102,23 +76,17 @@ def wait_ready(port: int, timeout: float = 10) -> bool:
     return False
 
 
-@contextmanager
-def container_pair(container_port: int = 80, mounts: list[str] | None = None):
-    """Yield (port_upstream, port_ours) for a fresh, ready container pair.
-    Guarantees cleanup on exit. Yields None if either container fails to start."""
-    up = "echo-compat-aux-upstream"
-    ours = "echo-compat-aux-ours"
-    silent_rm(up, ours)
-    p_up, p_ours = free_port(), free_port()
-    try:
-        start_container(UPSTREAM, up, p_up, container_port, mounts)
-        start_container(IMAGE, ours, p_ours, container_port, mounts)
-        if wait_ready(p_up) and wait_ready(p_ours):
-            yield (p_up, p_ours)
-        else:
-            yield None
-    finally:
-        silent_rm(up, ours)
+def ensure_image_present(image: str) -> None:
+    res = subprocess.run(
+        ["docker", "images", "--filter", f"reference={image}", "-q"],
+        capture_output=True, text=True,
+    )
+    if not res.stdout.strip():
+        pytest.exit(
+            f"Image not found locally: {image}  "
+            f"(build with `make image`, or pull `{image}`)",
+            returncode=2,
+        )
 
 
 # ----- HTTP helpers -----
@@ -152,138 +120,134 @@ def raw_request(port: int, payload: bytes) -> bytes:
     return b"".join(chunks)
 
 
-# ----- Assertion helpers -----
+# ----- Assertion helper -----
 
-def _short(v) -> str:
-    s = repr(v)
-    return s if len(s) <= 80 else s[:80] + "…"
-
-
-def check(name: str, expected, actual, summary: str | None = None) -> None:
-    """summary is shown dim on PASS to convey what was compared.
-    On FAIL, full expected/actual are printed (truncated to 200 chars)."""
-    global PASS, FAIL
-    s = summary or f"upstream={_short(expected)}  ours={_short(actual)}"
-    if expected == actual:
-        PASS += 1
-        print(f"  {green('PASS')}  {name:<14}  {dim(s)}")
-    else:
-        FAIL += 1
-        e, a = repr(expected), repr(actual)
-        if len(e) > 200:
-            e = e[:200] + "…"
-        if len(a) > 200:
-            a = a[:200] + "…"
-        print(f"  {red('FAIL')}  {name:<14}  {dim(s)}")
-        print(f"        upstream: {e}")
-        print(f"        ours:     {a}")
-
-
-def info(name: str, msg: str) -> None:
-    print(f"  {yellow('INFO')}  {name:<14}  {dim(msg)}")
-
-
-def section(label: str) -> None:
-    print(f"\n{cyan('=== ' + label + ' ===')}")
-
-
-def compare_responses(label: str, up, ours, body_decoder=None) -> None:
-    """Compare two (status, headers, body) tuples on status / header set / header values / body."""
-    section(label)
+def assert_responses_match(up, ours, body_decoder=None) -> None:
+    """Assert two (status, headers, body) tuples agree on status, header set,
+    header values (excluding inherently-varying headers), and body bytes.
+    pytest's assertion introspection prints the actual differing values on
+    failure — no need for custom error messages."""
     s_up, h_up, b_up = up
     s_ours, h_ours, b_ours = ours
 
-    check("status code", s_up, s_ours,
-          summary=f"upstream={s_up}  ours={s_ours}")
+    assert s_up == s_ours, "status mismatch"
 
-    check("header names", sorted(h_up), sorted(h_ours),
-          summary=f"upstream={len(h_up)} headers  ours={len(h_ours)} headers")
+    assert sorted(h_up) == sorted(h_ours), "header names differ"
 
-    diffs = [
-        (k, h_up.get(k), h_ours.get(k))
+    diffs = {
+        k: (h_up.get(k), h_ours.get(k))
         for k in h_up
         if k not in HEADERS_IGNORE_VALUE and h_up.get(k) != h_ours.get(k)
-    ]
-    check("header values", [], diffs,
-          summary=f"{len(diffs)} value diffs (excl. {', '.join(sorted(HEADERS_IGNORE_VALUE))})")
+    }
+    assert not diffs, "header value mismatches"
 
     if body_decoder:
         b_up, b_ours = body_decoder(b_up), body_decoder(b_ours)
-    check("body bytes", b_up, b_ours,
-          summary=f"upstream={len(b_up)} bytes  ours={len(b_ours)} bytes")
+    assert b_up == b_ours, "body bytes differ"
 
 
-# ----- Scenarios (shared pair: take ports, run against them) -----
+# ----- Fixtures -----
 
-def scenario_get_root(p_up, p_ours):
-    compare_responses("GET / — default welcome page",
-                      fetch(p_up, "/"), fetch(p_ours, "/"))
-
-
-def scenario_get_404(p_up, p_ours):
-    compare_responses("GET /nonexistent — 404",
-                      fetch(p_up, "/nonexistent"), fetch(p_ours, "/nonexistent"))
+@pytest.fixture(scope="session", autouse=True)
+def _check_images_present():
+    ensure_image_present(UPSTREAM)
+    ensure_image_present(IMAGE)
 
 
-def scenario_head(p_up, p_ours):
-    compare_responses("HEAD / — headers only, no body",
-                      fetch(p_up, "/", method="HEAD"), fetch(p_ours, "/", method="HEAD"))
+@pytest.fixture(scope="session")
+def default_pair():
+    """Default container pair (no custom mounts). Session-scoped — boots once
+    per pytest run, reused across all tests that use it."""
+    name_up, name_ours = "echo-compat-upstream", "echo-compat-ours"
+    silent_rm(name_up, name_ours)
+    p_up, p_ours = free_port(), free_port()
+    start_container(UPSTREAM, name_up, p_up)
+    start_container(IMAGE, name_ours, p_ours)
+    if not (wait_ready(p_up) and wait_ready(p_ours)):
+        silent_rm(name_up, name_ours)
+        pytest.fail("default container pair failed to become ready")
+    yield (p_up, p_ours)
+    silent_rm(name_up, name_ours)
 
 
-def scenario_gzip(p_up, p_ours):
-    """Both servers must make the same Accept-Encoding decision (either both
-    gzip the body, or both ignore the request header) and bodies must match
-    under that decision. Upstream's nginx.conf has `gzip on;` commented, so
-    the default behavior is "both ignore" — we exercise the negotiation path
-    on both ends regardless."""
+@pytest.fixture(scope="module")
+def custom_config_pair():
+    """Container pair with test/fixtures/api.conf mounted into conf.d/.
+    Module-scoped — boots once and reused by tests in the same module."""
+    name_up, name_ours = "echo-compat-cc-upstream", "echo-compat-cc-ours"
+    silent_rm(name_up, name_ours)
+    p_up, p_ours = free_port(), free_port()
+    mount = [f"{FIXTURES}/api.conf:/etc/nginx/conf.d/api.conf:ro"]
+    start_container(UPSTREAM, name_up, p_up, container_port=8081, mounts=mount)
+    start_container(IMAGE, name_ours, p_ours, container_port=8081, mounts=mount)
+    if not (wait_ready(p_up) and wait_ready(p_ours)):
+        silent_rm(name_up, name_ours)
+        pytest.fail("custom-config container pair failed to become ready")
+    yield (p_up, p_ours)
+    silent_rm(name_up, name_ours)
+
+
+# ----- Tests (default config) -----
+
+def test_get_root(default_pair):
+    """GET / — default welcome page."""
+    p_up, p_ours = default_pair
+    assert_responses_match(fetch(p_up, "/"), fetch(p_ours, "/"))
+
+
+def test_get_404(default_pair):
+    """GET /nonexistent — 404."""
+    p_up, p_ours = default_pair
+    assert_responses_match(
+        fetch(p_up, "/nonexistent"),
+        fetch(p_ours, "/nonexistent"),
+    )
+
+
+def test_head(default_pair):
+    """HEAD / — headers only, empty body."""
+    p_up, p_ours = default_pair
+    assert_responses_match(
+        fetch(p_up, "/", method="HEAD"),
+        fetch(p_ours, "/", method="HEAD"),
+    )
+
+
+def test_gzip_negotiation(default_pair):
+    """Accept-Encoding: gzip — both servers must make the same encoding
+    decision (both compress, or neither) and bodies must match under that
+    decision. Upstream's nginx.conf has `gzip on;` commented out, so by
+    default neither server compresses regardless of the request header."""
+    p_up, p_ours = default_pair
     headers = {"Accept-Encoding": "gzip"}
     up = fetch(p_up, "/", extra_headers=headers)
     ours = fetch(p_ours, "/", extra_headers=headers)
     enc_up = up[1].get("content-encoding", "")
     enc_ours = ours[1].get("content-encoding", "")
 
-    section("GET / with Accept-Encoding: gzip")
     if enc_up == "gzip" == enc_ours:
-        info("encoding", "both compressed (Content-Encoding: gzip) — comparing decoded bodies")
-        up = (up[0], up[1], gzip.decompress(up[2]))
-        ours = (ours[0], ours[1], gzip.decompress(ours[2]))
+        assert_responses_match(up, ours, body_decoder=gzip.decompress)
     elif not enc_up and not enc_ours:
-        info("encoding", "neither compressed (`gzip on;` is off in upstream config) — comparing raw bodies")
+        assert_responses_match(up, ours)
     else:
-        info("encoding", f"MISMATCH upstream={enc_up!r}  ours={enc_ours!r}")
-
-    s_up, h_up, b_up = up
-    s_ours, h_ours, b_ours = ours
-    check("status code", s_up, s_ours,
-          summary=f"upstream={s_up}  ours={s_ours}")
-    check("header names", sorted(h_up), sorted(h_ours),
-          summary=f"upstream={len(h_up)} headers  ours={len(h_ours)} headers")
-    diffs = [
-        (k, h_up.get(k), h_ours.get(k))
-        for k in h_up
-        if k not in HEADERS_IGNORE_VALUE and h_up.get(k) != h_ours.get(k)
-    ]
-    check("header values", [], diffs,
-          summary=f"{len(diffs)} value diffs")
-    check("body bytes", b_up, b_ours,
-          summary=f"upstream={len(b_up)} bytes  ours={len(b_ours)} bytes")
+        pytest.fail(f"encoding mismatch: upstream={enc_up!r} ours={enc_ours!r}")
 
 
-def scenario_post_large(p_up, p_ours):
-    """1 MB POST against /. nginx default config rejects non-GET/HEAD on /
-    with 405 Method Not Allowed; both servers should agree."""
+def test_post_large_body(default_pair):
+    """POST / with 1MB body — nginx default config rejects with 405."""
+    p_up, p_ours = default_pair
     body = b"x" * (1024 * 1024)
     headers = {"Content-Type": "application/octet-stream"}
-    compare_responses(
-        "POST / 1MB body — both reject with 405",
+    assert_responses_match(
         fetch(p_up, "/", method="POST", body=body, extra_headers=headers),
         fetch(p_ours, "/", method="POST", body=body, extra_headers=headers),
     )
 
 
-def scenario_malformed(p_up, p_ours):
-    """Raw socket: send a broken request line, expect a matching 400 status line."""
-    section("malformed request — raw socket, expect 400")
+def test_malformed_request(default_pair):
+    """Raw socket with broken request line — both servers reply with
+    matching status line (typically `HTTP/1.1 400 Bad Request`)."""
+    p_up, p_ours = default_pair
     payload = b"INVALID / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
     def first_line(resp: bytes) -> bytes:
@@ -291,95 +255,13 @@ def scenario_malformed(p_up, p_ours):
 
     up = first_line(raw_request(p_up, payload))
     ours = first_line(raw_request(p_ours, payload))
-    check("status line", up, ours,
-          summary=f"upstream={up.decode(errors='replace')!r}  ours={ours.decode(errors='replace')!r}")
+    assert up == ours, f"status line mismatch: upstream={up!r} ours={ours!r}"
 
 
-# ----- Scenarios (standalone: manage their own container pair) -----
+# ----- Tests (custom config) -----
 
-def scenario_custom_config():
-    """Mount test/fixtures/api.conf into /etc/nginx/conf.d/ on both containers
-    and verify they serve the user-defined endpoint identically."""
-    mount = f"{FIXTURES}/api.conf:/etc/nginx/conf.d/api.conf:ro"
-    with container_pair(container_port=8081, mounts=[mount]) as ports:
-        if ports is None:
-            global FAIL
-            FAIL += 1
-            print(f"  {red('FAIL')}  custom-config container pair failed to become ready")
-            return
-        p_up, p_ours = ports
-        compare_responses(
-            "GET /api on a user-mounted conf.d/api.conf",
-            fetch(p_up, "/api"), fetch(p_ours, "/api"),
-        )
-
-
-SHARED_SCENARIOS = [
-    scenario_get_root,
-    scenario_get_404,
-    scenario_head,
-    scenario_gzip,
-    scenario_post_large,
-    scenario_malformed,
-]
-
-STANDALONE_SCENARIOS = [
-    scenario_custom_config,
-]
-
-
-# ----- Runner -----
-
-def ensure_image_present(image: str) -> None:
-    # `docker image inspect <short-name>` regressed in Docker 29.x;
-    # `docker images --filter reference=` works on both short and qualified names.
-    res = subprocess.run(
-        ["docker", "images", "--filter", f"reference={image}", "-q"],
-        capture_output=True, text=True,
-    )
-    if not res.stdout.strip():
-        print(f"{red('ERROR')}: image not found locally: {image}", file=sys.stderr)
-        print(f"        (build with `make image`, or pull `{image}`)", file=sys.stderr)
-        sys.exit(2)
-
-
-def safe_run(scenario, *args) -> None:
-    """Run a scenario, count any raised exception as a single failure."""
-    global FAIL
-    try:
-        scenario(*args)
-    except Exception as e:
-        FAIL += 1
-        print(f"  {red('FAIL')}  scenario {scenario.__name__} raised {type(e).__name__}: {e}")
-
-
-def main():
-    print(bold(f"Comparing  upstream={UPSTREAM}  vs  ours={IMAGE}"))
-
-    ensure_image_present(UPSTREAM)
-    ensure_image_present(IMAGE)
-
-    silent_rm(NAME_UP, NAME_OURS)
-    p_up, p_ours = free_port(), free_port()
-    start_container(UPSTREAM, NAME_UP, p_up)
-    start_container(IMAGE, NAME_OURS, p_ours)
-
-    try:
-        if not (wait_ready(p_up) and wait_ready(p_ours)):
-            print(f"{red('ERROR')}: a container failed to become ready", file=sys.stderr)
-            sys.exit(2)
-        for sc in SHARED_SCENARIOS:
-            safe_run(sc, p_up, p_ours)
-    finally:
-        silent_rm(NAME_UP, NAME_OURS)
-
-    for sc in STANDALONE_SCENARIOS:
-        safe_run(sc)
-
-    verdict = green("all passed") if FAIL == 0 else red(f"{FAIL} failed")
-    print(f"\n{bold('Result:')} {PASS} pass, {FAIL} fail  ({verdict})")
-    sys.exit(0 if FAIL == 0 else 1)
-
-
-if __name__ == "__main__":
-    main()
+def test_get_api(custom_config_pair):
+    """conf.d/api.conf mounted into both containers — GET /api returns
+    identical responses, exercising `include /etc/nginx/conf.d/*.conf;`."""
+    p_up, p_ours = custom_config_pair
+    assert_responses_match(fetch(p_up, "/api"), fetch(p_ours, "/api"))

@@ -12,6 +12,11 @@ baseline/
 # Local scan output before it's curated into scans/
 *.tmp
 
+# Python venv + caches
+.venv/
+__pycache__/
+.pytest_cache/
+
 # OS / editor
 .DS_Store
 .idea/

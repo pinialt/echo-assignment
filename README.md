@@ -10,7 +10,15 @@ HTTP compatibility test against the upstream image.
 - Docker Desktop (or any Docker daemon that can run `linux/amd64` images)
 - Trivy (tested with 0.70.0)
 - grype (tested with 0.112.0)
-- `make` and `python3` (the baseline target uses `python3 -m json.tool` to pretty-print upstream image config)
+- `make` and `python3` (≥ 3.10)
+- `pytest` — needed by `make test`. Install into a project-local venv with `make setup` (one-shot):
+  ```bash
+  make setup                  # creates .venv and installs pytest
+  # or do it by hand:
+  python3 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+  ```
+  `make test` auto-detects `.venv/bin/python` and uses it; alternatively `source .venv/bin/activate` first.
 
 ## Layout
 
@@ -49,7 +57,7 @@ TODO
 
 We're ~5MB under, mostly because upstream ships `nginx-debug` (a second nginx binary built with `--with-debug`) and we don't — see [Residual risk](#residual-risk). The 4 nginx-module-* packages (`xslt`, `geoip`, `image-filter`, `njs`) and their transitive deps (`libicu72`, `libgd3`, `libgeoip1`, `libxslt1.1`, …) ARE installed in our image to match upstream's filesystem layout.
 
-The remaining sub-MB delta is bookworm point-release drift (e.g. `libssl3` `3.0.11` → `3.0.20`, `libc6` `+deb12u7` → `+deb12u13`, dozens of other tiny bumps) — pinned exact parity would require `snapshot.debian.org`, not worth it.
+The remaining sub-MB delta is bookworm point-release drift (e.g. `libssl3` `3.0.11` → `3.0.20`, `libc6` `+deb12u7` → `+deb12u13`, dozens of other tiny bumps) — pinned exact parity would require `snapshot.debian.org`.
 
 ## CVEs fixed
 
