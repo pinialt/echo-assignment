@@ -1,6 +1,6 @@
 {
   "@context": "https://openvex.dev/ns/v0.2.0",
-  "@id": "https://github.com/echo/assignment/vex/echo-nginx",
+  "@id": "https://github.com/pinialt/echo-assignment/blob/main/vex/echo-nginx.openvex.json",
   "author": "Paul Sherbaum <pinialtshu@gmail.com>",
   "timestamp": "2026-05-16T00:00:00Z",
   "version": 1,
