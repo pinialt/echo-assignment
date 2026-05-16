@@ -51,7 +51,7 @@ smoke:
 
 # Run the HTTP compatibility test against upstream + our image.
 test:
-	@echo "TODO: run test/ harness against $(UPSTREAM) and $(IMAGE)"
+	IMAGE=$(IMAGE) UPSTREAM=$(UPSTREAM) python3 test/compat_test.py
 
 # Re-scan the built image and diff against baseline.
 scan:
