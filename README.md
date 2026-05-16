@@ -70,6 +70,7 @@ That's the whole happy path. Steps ① and ② only need to run once per clone �
 | `make test` | pytest HTTP compatibility test against upstream + ours (non-zero exit on any mismatch — the assignment's deliverable) |
 | `make scan` | Re-scans the built image with Trivy + Grype; prints how many CVEs the rebuild resolved vs baseline |
 | `make all` | `build → image → test` |
+| `make clean` | Removes generated artifacts: `build/out/`, `baseline/`, `scans/{baseline,fixed}-*`, pytest caches, and the `echo-nginx:local` image. Leaves `.venv` intact |
 
 **Tunables** (override via env or `make VAR=value`):
 

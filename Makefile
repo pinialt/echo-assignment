@@ -92,5 +92,13 @@ scan:
 	fi; \
 	printf "    %-7s %s  (of the above, dropped via VEX attestation)\n" "vex:" "$$vex_count"
 
+# Remove generated artifacts: the built .deb, the baseline + scan outputs,
+# pytest caches, and the built image. Leaves .venv intact (use `rm -rf .venv`
+# to also drop that).
 clean:
-	@echo "TODO: remove build/out, built images, scan artifacts"
+	rm -rf build/out baseline
+	rm -f scans/baseline-*.txt scans/baseline-*.json
+	rm -f scans/fixed-*.txt scans/fixed-*.json
+	rm -rf test/__pycache__ .pytest_cache
+	-docker rmi $(IMAGE) 2>/dev/null || true
+	@echo "==> cleaned (build/out, baseline/, scans/{baseline,fixed}-*, pytest caches, $(IMAGE) image)"
