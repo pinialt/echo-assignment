@@ -7,6 +7,10 @@ HTTP compatibility test against the upstream image.
 
 ## Requirements
 
+- Docker Desktop (or any Docker daemon that can run `linux/amd64` images)
+- Trivy (tested with 0.70.0)
+- grype (tested with 0.112.0)
+- `make` and `python3` (the baseline target uses `python3 -m json.tool` to pretty-print upstream image config)
 
 ## Layout
 
