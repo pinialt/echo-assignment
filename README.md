@@ -21,6 +21,16 @@ HTTP compatibility test against the upstream image.
 - [scans/](scans/) — Trivy + Grype reports (baseline and fixed)
 - [Makefile](Makefile) — one-command reproduction
 
+## Baseline
+
+`make baseline` pulls `nginx:1.25-bookworm` and captures the reference data we'll compare our drop-in build against. Outputs (not committed):
+
+- `baseline/upstream-nginx-v.txt` — `nginx -v`
+- `baseline/upstream-nginx-V.txt` — `nginx -V` (configure flags, modules, compile-time defaults)
+- `baseline/upstream-id-nginx.txt` — `id nginx` (uid/gid of the runtime user)
+- `baseline/upstream-config.json` — `docker inspect` of the image config (entrypoint, cmd, workdir, exposed ports, env, user)
+- `scans/baseline-trivy.{txt,json}` and `scans/baseline-grype.{txt,json}` — vulnerability scans
+
 ## Build instructions
 
 TODO
