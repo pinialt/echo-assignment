@@ -38,8 +38,11 @@ build:
 	@echo "==> built: build/out/nginx_$(NGINX_VERSION)-$(DEB_REVISION)_amd64.deb"
 
 # Install the .deb into a minimal base and produce the final image.
+# Expects build/out/*.deb to exist (run `make build` first).
 image:
-	@echo "TODO: docker build -f Containerfile -t $(IMAGE) ."
+	@ls build/out/*.deb >/dev/null 2>&1 || { echo "No .deb in build/out/. Run 'make build' first." >&2; exit 1; }
+	docker build -f Containerfile -t $(IMAGE) .
+	@echo "==> built: $(IMAGE)"
 
 # Run the HTTP compatibility test against upstream + our image.
 test:
