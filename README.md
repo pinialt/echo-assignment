@@ -16,8 +16,10 @@ HTTP compatibility test against the upstream image.
 
 - [build/](build/) — script that produces the `.deb` from upstream source
   - [build/patches/](build/patches/) — backport patches, each named after the CVE it fixes
-  - [build/conf/](build/conf/) — Debian-packaging configs vendored from upstream (`nginx.conf`, `default.conf`) baked into the `.deb`
-- [entrypoint/](entrypoint/) — entrypoint scripts vendored from upstream `nginx/docker-nginx`
+  - [build/conf/](build/conf/) — Debian-packaging configs baked into the `.deb`, byte-identical to [`nginx/pkg-oss@1.25.5-1`](https://github.com/nginx/pkg-oss/tree/1.25.5-1/debian/debian):
+    - `nginx.conf` ← [`debian/debian/nginx.conf`](https://github.com/nginx/pkg-oss/blob/1.25.5-1/debian/debian/nginx.conf)
+    - `default.conf` ← [`debian/debian/nginx.default.conf`](https://github.com/nginx/pkg-oss/blob/1.25.5-1/debian/debian/nginx.default.conf) (installed as `/etc/nginx/conf.d/default.conf`)
+- [entrypoint/](entrypoint/) — entrypoint scripts vendored from [`nginx/docker-nginx@1.25.5`](https://github.com/nginx/docker-nginx/tree/1.25.5/mainline/debian)
 - [Containerfile](Containerfile) — produces the final image from the `.deb`
 - [test/](test/) — compatibility test (`make test`) + drop-in parity audit (`make smoke`)
 - [scans/](scans/) — Trivy + Grype reports (baseline and fixed)
